@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>App Allenamento</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="theme-color" content="#1f2937">
+  <link rel="manifest" href="data:application/json;base64,eyJpY29ucyI6W3sic2l6ZXMiOiIxOTJ4MTkyIiwidHlwZSI6ImltYWdlL3BuZyIsInNyYyI6ImRhdGE6aW1hZ2UvcG5nO2Jhc2U2NCxJSXZhS0dBZ0FBQUFBUyIsInB1cnBvc2UiOiJvbnR5IiwibmFtZSI6Ikljb25hMTkyIn0sInsic2l6ZXMiOiIyNTZ4MjU2IiwidHlwZSI6ImltYWdlL3BuZyIsInNyYyI6ImRhdGE6aW1hZ2UvcG5nO2Jhc2U2NCxpWFZCYUhReU14QmRhVzV6YjIwdWRIUmxaQzFtWFNJdmFrS0dBZ0FBQUFBUyIsInB1cnBvc2UiOiJvbnR5IiwibmFtZSI6Ikljb25hMjU2In0sInsic2l6ZXMiOiI1MTJ4NTEyIiwidHlwZSI6ImltYWdlL3BuZyIsInNyYyI6ImRhdGE6aW1hZ2UvcG5nO2Jhc2U2NCxpWFZCYUhReU14QmRhVzV6YjIwdWRIUmxaQzFtWFNJdmFrS0dBZ0FBQUFBUyIsInB1cnBvc2UiOiJvbnR5IiwibmFtZSI6Ikljb25hNTEyIn1dLCJkaXNwbGF5Ijoic3RhbmRhbG9uZSIsIm5hbWUiOiJHeW0gQXBwIiwic2hvcnRfbmFtZSI6Ikd5bSBBcHAiLCJ0aGVtZV9jb2xvciI6IiMxZjI5MzciLCJiYWNrZ3JvdW5kX2NvbG9yIjoiIzBiMDcwYyJ9">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    input::-webkit-outer-spin-button,
+    input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+    input[type=number] {
+        -moz-appearance: textfield;
+    }
+  </style>
+  <!-- Carica le librerie React, ReactDOM e Babel per compilare il JSX -->
+  <script crossorigin src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <!-- Carica le librerie Firebase -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-auth.js";
+    import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore.js";
+    window.initializeApp = initializeApp;
+    window.getAuth = getAuth;
+    window.signInAnonymously = signInAnonymously;
+    window.signInWithCustomToken = signInWithCustomToken;
+    window.onAuthStateChanged = onAuthStateChanged;
+    window.getFirestore = getFirestore;
+    window.doc = doc;
+    window.getDoc = getDoc;
+    window.addDoc = addDoc;
+    window.setDoc = setDoc;
+    window.updateDoc = updateDoc;
+    window.deleteDoc = deleteDoc;
+    window.onSnapshot = onSnapshot;
+    window.collection = collection;
+    window.query = query;
+    window.where = where;
+    window.getDocs = getDocs;
+  </script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const formatTime = (timeInSeconds) => {
+      if (timeInSeconds < 0) return '00:00';
+      const minutes = Math.floor(timeInSeconds / 60);
+      const seconds = timeInSeconds % 60;
+      return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    };
+
+    const App = () => {
+      const [currentPage, setCurrentPage] = useState('Oggi');
+      const [workouts, setWorkouts] = useState({});
+      const [maxes, setMaxes] = useState({});
+      const [percentages, setPercentages] = useState([]);
+      const [generalTimer, setGeneralTimer] = useState(0);
+      const [timerInterval, setTimerInterval] = useState(null);
+      const [isTimerRunning, setIsTimerRunning] = useState(false);
+      const [activeWorkout, setActiveWorkout] = useState(null);
+      const [showWorkoutDetails, setShowWorkoutDetails] = useState(false);
+      const [showWorkoutDisplay, setShowWorkoutDisplay] = useState(false);
+      const [currentDay, setCurrentDay] = useState('Lunedì');
+
+      const [db, setDb] = useState(null);
+      const [userId, setUserId] = useState(null);
+      const [isDataLoaded, setIsDataLoaded] = useState(false);
+
+      const daysOfWeek = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
+
+      useEffect(() => {
+        const initFirebase = async () => {
+          try {
+            const firebaseConfig = JSON.parse(
+              typeof __firebase_config !== 'undefined' ?
+              __firebase_config :
+              '{}'
+            );
+            const app = window.initializeApp(firebaseConfig);
+            const firestore = window.getFirestore(app);
+            const auth = window.getAuth(app);
+            const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+            
+            if (initialAuthToken) {
+              await window.signInWithCustomToken(auth, initialAuthToken);
+            } else {
+              await window.signInAnonymously(auth);
+            }
+            
+            setUserId(auth.currentUser.uid);
+            setDb(firestore);
+            console.log("Firebase inizializzato e utente autenticato:", auth.currentUser.uid);
+
+          } catch (e) {
+            console.error("Errore durante l'inizializzazione di Firebase:", e);
+          }
+        };
+
+        if (window.initializeApp) {
+          initFirebase();
+        } else {
+          const checkFirebaseInterval = setInterval(() => {
+            if (window.initializeApp) {
+              clearInterval(checkFirebaseInterval);
+              initFirebase();
+            }
+          }, 100);
+        }
+
+      }, []);
+
+      useEffect(() => {
+        if (db && userId) {
+          const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+          const userWorkoutsRef = window.collection(db, 'artifacts', appId, 'users', userId, 'workouts');
+          const userMaxesRef = window.collection(db, 'artifacts', appId, 'users', userId, 'maxes');
+          const userPercentagesDocRef = window.doc(db, 'artifacts', appId, 'users', userId, 'settings', 'user_settings');
+
+          const unsubscribeWorkouts = window.onSnapshot(userWorkoutsRef, (snapshot) => {
+            const newWorkouts = {};
+            snapshot.forEach(doc => {
+              const workout = doc.data();
+              const day = workout.day;
+              if (!newWorkouts[day]) {
+                newWorkouts[day] = [];
+              }
+              newWorkouts[day].push({ ...workout, id: doc.id });
+            });
+            setWorkouts(newWorkouts);
+            setIsDataLoaded(true);
+          });
+
+          const unsubscribeMaxes = window.onSnapshot(userMaxesRef, (snapshot) => {
+            const newMaxes = {};
+            snapshot.forEach(doc => {
+              newMaxes[doc.id] = doc.data().weight;
+            });
+            setMaxes(newMaxes);
+            setIsDataLoaded(true);
+          });
+
+          const unsubscribePercentages = window.onSnapshot(userPercentagesDocRef, (docSnap) => {
+            if (docSnap.exists()) {
+              setPercentages(docSnap.data().percentages || [70, 80, 90]);
+            } else {
+              setPercentages([70, 80, 90]);
+              window.setDoc(userPercentagesDocRef, { percentages: [70, 80, 90] });
+            }
+            setIsDataLoaded(true);
+          });
+
+          return () => {
+            unsubscribeWorkouts();
+            unsubscribeMaxes();
+            unsubscribePercentages();
+          };
+        }
+      }, [db, userId]);
+
+      const handleStartTimer = () => {
+        if (!isTimerRunning) {
+          setIsTimerRunning(true);
+          setTimerInterval(setInterval(() => {
+            setGeneralTimer(prevTime => prevTime + 1);
+          }, 1000));
+        }
+      };
+
+      const handleStopTimer = () => {
+        if (isTimerRunning) {
+          clearInterval(timerInterval);
+        }
+        setIsTimerRunning(false);
+      };
+
+      const handleResetTimer = () => {
+        clearInterval(timerInterval);
+        setIsTimerRunning(false);
+        setGeneralTimer(0);
+      };
+
+      const handleAddWorkout = async (day, type = 'workout') => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const workoutCount = (workouts[day]?.length || 0) + 1;
+        const newWorkout = {
+          day: day,
+          name: type === 'wod' ? `WOD ${workoutCount}` : `Allenamento ${workoutCount}`,
+          type: type,
+          exercises: type === 'wod' ? [] : [],
+          ...(type === 'wod' && { modality: 'For Time', timeCap: '', wodText: '' })
+        };
+        try {
+          await window.addDoc(window.collection(db, 'artifacts', appId, 'users', userId, 'workouts'), newWorkout);
+        } catch (e) {
+          console.error("Errore durante l'aggiunta dell'allenamento:", e);
+        }
+      };
+
+      const handleEditWorkout = (workout) => {
+        setActiveWorkout(workout);
+        setShowWorkoutDetails(true);
+        setShowWorkoutDisplay(false);
+      };
+
+      const handleDisplayWorkout = (workout) => {
+        setActiveWorkout(workout);
+        setShowWorkoutDisplay(true);
+        setShowWorkoutDetails(false);
+      };
+
+      const handleSaveWorkoutDetails = async (updatedWorkout) => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const { id, ...data } = updatedWorkout;
+        try {
+          await window.updateDoc(window.doc(db, 'artifacts', appId, 'users', userId, 'workouts', id), data);
+        } catch (e) {
+          console.error("Errore durante il salvataggio dell'allenamento:", e);
+        }
+        setShowWorkoutDetails(false);
+        setActiveWorkout(null);
+      };
+
+      const handleBack = () => {
+        setShowWorkoutDetails(false);
+        setShowWorkoutDisplay(false);
+        setActiveWorkout(null);
+      };
+
+      const handleDeleteWorkout = async (workoutId) => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        try {
+          await window.deleteDoc(window.doc(db, 'artifacts', appId, 'users', userId, 'workouts', workoutId));
+        } catch (e) {
+          console.error("Errore durante l'eliminazione dell'allenamento:", e);
+        }
+      };
+
+      const renderContent = () => {
+        if (!isDataLoaded) {
+          return (
+            <div className="flex justify-center items-center h-full">
+              <p className="text-gray-400">Caricamento dati...</p>
+            </div>
+          );
+        }
+        if (showWorkoutDetails) {
+          return <WorkoutDetails workout={activeWorkout} onSave={handleSaveWorkoutDetails} onBack={handleBack} />;
+        }
+        if (showWorkoutDisplay) {
+          return <WorkoutDisplay workout={activeWorkout} onBack={handleBack} />;
+        }
+        switch (currentPage) {
+          case 'Oggi':
+            return <TodayView workouts={workouts} onDisplayWorkout={handleDisplayWorkout} daysOfWeek={daysOfWeek} />;
+          case 'Allenamenti':
+            return <WorkoutsView workouts={workouts} onAddWorkout={handleAddWorkout} onEditWorkout={handleEditWorkout} onDisplayWorkout={handleDisplayWorkout} onDeleteWorkout={handleDeleteWorkout} currentDay={currentDay} setCurrentDay={setCurrentDay} daysOfWeek={daysOfWeek} />;
+          case 'WOD':
+            return <WodsView workouts={workouts} onAddWorkout={handleAddWorkout} onEditWorkout={handleEditWorkout} onDisplayWorkout={handleDisplayWorkout} onDeleteWorkout={handleDeleteWorkout} currentDay={currentDay} setCurrentDay={setCurrentDay} daysOfWeek={daysOfWeek} />;
+          case 'Massimali':
+            return <MaxesView maxes={maxes} percentages={percentages} onUpdateMax={handleUpdateMax} onAddMax={handleAddMax} onDeleteMax={handleDeleteMax} onUpdatePercentages={handleUpdatePercentages} />;
+          case 'Utility':
+            return <UtilityView />;
+          default:
+            return null;
+        }
+      };
+
+      const handleAddMax = async (name, weight) => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        try {
+          await window.setDoc(window.doc(db, 'artifacts', appId, 'users', userId, 'maxes', name), { weight });
+        } catch (e) {
+          console.error("Errore durante l'aggiunta del massimale:", e);
+        }
+      };
+
+      const handleUpdateMax = async (name, newWeight) => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        try {
+          await window.updateDoc(window.doc(db, 'artifacts', appId, 'users', userId, 'maxes', name), { weight: newWeight });
+        } catch (e) {
+          console.error("Errore durante l'aggiornamento del massimale:", e);
+        }
+      };
+
+      const handleDeleteMax = async (name) => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        try {
+          await window.deleteDoc(window.doc(db, 'artifacts', appId, 'users', userId, 'maxes', name));
+        } catch (e) {
+          console.error("Errore durante l'eliminazione del massimale:", e);
+        }
+      };
+
+      const handleUpdatePercentages = async (newPercentages) => {
+        if (!db || !userId) return;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        try {
+          const userPercentagesDocRef = window.doc(db, 'artifacts', appId, 'users', userId, 'settings', 'user_settings');
+          await window.setDoc(userPercentagesDocRef, { percentages: newPercentages });
+        } catch (e) {
+          console.error("Errore durante l'aggiornamento delle percentuali:", e);
+        }
+      };
+
+      return (
+        <div className="flex flex-col h-screen bg-gray-900 text-white font-sans overflow-hidden">
+          <header className="p-4 bg-gray-800 shadow-md flex flex-col sm:flex-row justify-between items-center space-y-2 sm:space-y-0">
+            <h1 className="text-xl font-bold">Gym App</h1>
+            <div className="flex items-center space-x-4">
+              <div className="text-lg font-mono">{formatTime(generalTimer)}</div>
+              <div className="flex space-x-2">
+                <button onClick={handleStartTimer} className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-full text-sm">Start</button>
+                <button onClick={handleStopTimer} className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-full text-sm">Stop</button>
+                <button onClick={handleResetTimer} className="bg-gray-500 hover:bg-gray-600 text-white px-3 py-1 rounded-full text-sm">Reset</button>
+              </div>
+            </div>
+          </header>
+          <main className="flex-1 overflow-y-auto p-4 relative">
+            {renderContent()}
+          </main>
+          <nav className="flex justify-around bg-gray-800 p-2 shadow-inner">
+            <NavItem icon="📅" label="Oggi" onClick={() => {
+              setCurrentPage('Oggi');
+              handleBack();
+            }} active={currentPage === 'Oggi'} />
+            <NavItem icon="💪" label="Allenamenti" onClick={() => {
+              setCurrentPage('Allenamenti');
+              handleBack();
+            }} active={currentPage === 'Allenamenti'} />
+            <NavItem icon="🏃" label="WOD" onClick={() => {
+              setCurrentPage('WOD');
+              handleBack();
+            }} active={currentPage === 'WOD'} />
+            <NavItem icon="🏋️" label="Massimali" onClick={() => {
+              setCurrentPage('Massimali');
+              handleBack();
+            }} active={currentPage === 'Massimali'} />
+            <NavItem icon="🧮" label="Utility" onClick={() => {
+              setCurrentPage('Utility');
+              handleBack();
+            }} active={currentPage === 'Utility'} />
+          </nav>
+        </div>
+      );
+    };
+
+    const TodayView = ({ workouts, onDisplayWorkout, daysOfWeek }) => {
+      const todayIndex = new Date().getDay() - 1;
+      const today = daysOfWeek[todayIndex < 0 ? 6 : todayIndex];
+      const todayWorkouts = workouts[today] || [];
+
+      return (
+        <div className="space-y-4">
+          <h2 className="text-2xl font-bold">Oggi: {today}</h2>
+          {todayWorkouts.length > 0 ? (
+            todayWorkouts.map(workout => (
+              <div key={workout.id} className="bg-gray-800 rounded-lg p-4 shadow-lg flex flex-col space-y-2">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-lg font-semibold">{workout.name}</h4>
+                  <button
+                    onClick={() => onDisplayWorkout(workout)}
+                    className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition-colors duration-200"
+                  >
+                    Visualizza
+                  </button>
+                </div>
+                {workout.type === 'workout' && (
+                  <div className="text-sm text-gray-400">
+                    <ul className="list-disc list-inside space-y-1">
+                      {workout.exercises.map((ex, index) => (
+                        <li key={index}>
+                          <span className="font-semibold text-white">{ex.name}</span> - {ex.reps} rip, {ex.load} kg, {ex.recovery} s rec.
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {workout.type === 'wod' && (
+                  <div className="text-sm text-gray-400 space-y-2">
+                    <p><span className="font-semibold text-white">Modalità:</span> {workout.modality}</p>
+                    <p><span className="font-semibold text-white">Descrizione:</span></p>
+                    <p className="whitespace-pre-wrap">{workout.wodText}</p>
+                  </div>
+                )}
+              </div>
+            ))
+          ) : (
+            <p className="text-center text-gray-400 py-8">Nessun allenamento o WOD previsto per oggi.</p>
+          )}
+        </div>
+      );
+    };
+
+    const WorkoutsView = ({ workouts, onAddWorkout, onEditWorkout, onDisplayWorkout, onDeleteWorkout, currentDay, setCurrentDay, daysOfWeek }) => {
+      const filteredWorkouts = (workouts[currentDay] || []).filter(w => w.type === 'workout');
+
+      return (
+        <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 h-full">
+          <div className="flex sm:flex-col sm:space-x-0 space-x-2 sm:space-y-2 bg-gray-800 p-2 rounded-lg overflow-x-auto sm:w-48">
+            {daysOfWeek.map(day => (
+              <button
+                key={day}
+                onClick={() => setCurrentDay(day)}
+                className={`flex-shrink-0 px-4 py-2 rounded-lg font-medium text-sm transition-colors duration-200 ${currentDay === day ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+          <div className="flex-1 space-y-4">
+            <div className="flex items-center justify-between bg-gray-800 rounded-lg p-4">
+              <h3 className="text-lg font-bold">Allenamenti: {currentDay}</h3>
+              <button onClick={() => onAddWorkout(currentDay, 'workout')} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                + Aggiungi Allenamento
+              </button>
+            </div>
+            <div className="space-y-4">
+              {filteredWorkouts.length > 0 ? (
+                filteredWorkouts.map(workout => (
+                  <div key={workout.id} className="bg-gray-800 rounded-lg p-4 shadow-lg flex justify-between items-center">
+                    <div>
+                      <h4 className="text-lg font-semibold">{workout.name}</h4>
+                      <p className="text-sm text-gray-400">
+                        {workout.exercises.length} esercizi
+                      </p>
+                    </div>
+                    <div className="space-x-2">
+                      <button
+                        onClick={() => onDisplayWorkout(workout)}
+                        className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition-colors duration-200"
+                      >
+                        Visualizza
+                      </button>
+                      <button
+                        onClick={() => onEditWorkout(workout)}
+                        className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200"
+                      >
+                        Modifica
+                      </button>
+                      <button
+                        onClick={() => onDeleteWorkout(workout.id)}
+                        className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors duration-200"
+                      >
+                        Elimina
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-center text-gray-400 py-8">Nessun allenamento per oggi.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const WodsView = ({ workouts, onAddWorkout, onEditWorkout, onDisplayWorkout, onDeleteWorkout, currentDay, setCurrentDay, daysOfWeek }) => {
+      const filteredWods = (workouts[currentDay] || []).filter(w => w.type === 'wod');
+
+      return (
+        <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 h-full">
+          <div className="flex sm:flex-col sm:space-x-0 space-x-2 sm:space-y-2 bg-gray-800 p-2 rounded-lg overflow-x-auto sm:w-48">
+            {daysOfWeek.map(day => (
+              <button
+                key={day}
+                onClick={() => setCurrentDay(day)}
+                className={`flex-shrink-0 px-4 py-2 rounded-lg font-medium text-sm transition-colors duration-200 ${currentDay === day ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300'}`}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+          <div className="flex-1 space-y-4">
+            <div className="flex items-center justify-between bg-gray-800 rounded-lg p-4">
+              <h3 className="text-lg font-bold">WODs: {currentDay}</h3>
+              <button onClick={() => onAddWorkout(currentDay, 'wod')} className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                + Aggiungi WOD
+              </button>
+            </div>
+            <div className="space-y-4">
+              {filteredWods.length > 0 ? (
+                filteredWods.map(workout => (
+                  <div key={workout.id} className="bg-gray-800 rounded-lg p-4 shadow-lg flex justify-between items-center">
+                    <div>
+                      <h4 className="text-lg font-semibold">{workout.name}</h4>
+                      <p className="text-sm text-gray-400">
+                        WOD - {workout.modality}
+                      </p>
+                    </div>
+                    <div className="space-x-2">
+                      <button
+                        onClick={() => onDisplayWorkout(workout)}
+                        className="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition-colors duration-200"
+                      >
+                        Visualizza
+                      </button>
+                      <button
+                        onClick={() => onEditWorkout(workout)}
+                        className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg transition-colors duration-200"
+                      >
+                        Modifica
+                      </button>
+                      <button
+                        onClick={() => onDeleteWorkout(workout.id)}
+                        className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors duration-200"
+                      >
+                        Elimina
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-center text-gray-400 py-8">Nessun WOD per oggi.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const WorkoutDisplay = ({ workout, onBack }) => {
+      const [recoveryTimer, setRecoveryTimer] = useState(null);
+      const [recoveryInterval, setRecoveryInterval] = useState(null);
+
+      const handleStartRecoveryTimer = (seconds) => {
+        if (recoveryInterval) {
+          clearInterval(recoveryInterval);
+        }
+        setRecoveryTimer(seconds);
+        const interval = setInterval(() => {
+          setRecoveryTimer(prevTime => {
+            if (prevTime <= 1) {
+              clearInterval(interval);
+              return null;
+            }
+            return prevTime - 1;
+          });
+        }, 1000);
+        setRecoveryInterval(interval);
+      };
+
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <button onClick={onBack} className="flex items-center text-indigo-400 hover:text-indigo-300 transition-colors duration-200">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Indietro
+            </button>
+            <h2 className="text-2xl font-bold">{workout.name}</h2>
+            <div className="w-16"></div>
+          </div>
+          {recoveryTimer !== null && (
+            <div className="text-center text-sm font-bold text-red-400 animate-pulse bg-gray-800 p-2 rounded-lg">
+              Recupero: {formatTime(recoveryTimer)}
+            </div>
+          )}
+          {workout.type === 'wod' && (
+            <div className="bg-gray-800 rounded-lg p-4 shadow-lg space-y-4">
+              <h3 className="text-xl font-semibold">Dettagli WOD</h3>
+              <div className="flex flex-col space-y-3">
+                <p><span className="font-medium text-gray-400">Modalità:</span> <span className="text-white font-semibold">{workout.modality}</span></p>
+                {workout.timeCap && <p><span className="font-medium text-gray-400">Time Cap:</span> <span className="text-white font-semibold">{workout.timeCap} minuti</span></p>}
+              </div>
+              <div className="flex flex-col space-y-2">
+                <h3 className="text-xl font-semibold">Descrizione WOD</h3>
+                <div className="bg-gray-700 text-white rounded-lg p-3 whitespace-pre-wrap">
+                  {workout.wodText || 'Nessuna descrizione.'}
+                </div>
+              </div>
+            </div>
+          )}
+          {workout.type === 'workout' && (
+            <div className="space-y-4">
+              <h3 className="text-xl font-semibold">Esercizi</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-700">
+                  <thead className="bg-gray-700">
+                    <tr>
+                      <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Esercizio</th>
+                      <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Ripetizioni</th>
+                      <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Carico (kg)</th>
+                      <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Recupero (s)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-gray-800 divide-y divide-gray-700">
+                    {workout.exercises.map((exercise, index) => (
+                      <tr key={index}>
+                        <td className="px-3 py-2 whitespace-nowrap text-white">{exercise.name}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-white">{exercise.reps}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-white">{exercise.load}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <div className="flex items-center space-x-2">
+                            <span className="text-white">{exercise.recovery}</span>
+                            {exercise.recovery && parseInt(exercise.recovery, 10) > 0 && (
+                              <button
+                                onClick={() => handleStartRecoveryTimer(parseInt(exercise.recovery, 10))}
+                                className="bg-red-500 text-white px-2 py-1 text-xs rounded-md hover:bg-red-600 transition-colors"
+                              >
+                                Start
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const WorkoutDetails = ({ workout, onSave, onBack }) => {
+      const [localWorkout, setLocalWorkout] = useState(workout);
+
+      useEffect(() => {
+        setLocalWorkout(workout);
+      }, [workout]);
+
+      if (!localWorkout) return null;
+
+      const handleUpdateWorkoutDetails = (field, value) => {
+        setLocalWorkout(prev => ({ ...prev, [field]: value }));
+      };
+
+      const handleUpdateExercise = (exerciseId, field, value) => {
+        setLocalWorkout(prev => {
+          const updatedExercises = prev.exercises.map(ex => {
+            if (ex.id === exerciseId) {
+              return { ...ex, [field]: value };
+            }
+            return ex;
+          });
+          return { ...prev, exercises: updatedExercises };
+        });
+      };
+
+      const handleAddExercise = () => {
+        const newExercise = { id: new Date().getTime(), name: 'Nuovo Esercizio', reps: '', load: '', recovery: '' };
+        setLocalWorkout(prev => ({
+          ...prev,
+          exercises: [...prev.exercises, newExercise],
+        }));
+      };
+
+      const handleDeleteExercise = (exerciseId) => {
+        setLocalWorkout(prev => ({
+          ...prev,
+          exercises: prev.exercises.filter(ex => ex.id !== exerciseId),
+        }));
+      };
+
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <button onClick={onBack} className="flex items-center text-indigo-400 hover:text-indigo-300 transition-colors duration-200">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Indietro
+            </button>
+            <input
+              type="text"
+              value={localWorkout.name || ''}
+              onChange={(e) => handleUpdateWorkoutDetails('name', e.target.value)}
+              className="bg-gray-800 text-white text-2xl font-bold px-2 py-1 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <button onClick={() => onSave(localWorkout)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+              Salva
+            </button>
+          </div>
+          {localWorkout.type === 'wod' && (
+            <div className="bg-gray-800 rounded-lg p-4 shadow-lg space-y-4">
+              <h3 className="text-xl font-semibold">Dettagli WOD</h3>
+              <div className="flex flex-col space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400">Modalità:</label>
+                  <select
+                    value={localWorkout.modality || 'For Time'}
+                    onChange={(e) => handleUpdateWorkoutDetails('modality', e.target.value)}
+                    className="mt-1 block w-full bg-gray-700 text-white rounded-md border-gray-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  >
+                    <option value="For Time">For Time</option>
+                    <option value="AMRAP">AMRAP</option>
+                    <option value="EMOM">EMOM</option>
+                    <option value="TABATA">TABATA</option>
+                    <option value="Rounds for Time">Rounds for Time</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400">Time Cap (minuti):</label>
+                  <input
+                    type="text"
+                    value={localWorkout.timeCap || ''}
+                    onChange={(e) => handleUpdateWorkoutDetails('timeCap', e.target.value)}
+                    placeholder="es. 15"
+                    className="mt-1 block w-full bg-gray-700 text-white rounded-md border-gray-600 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col space-y-2">
+                <h3 className="text-xl font-semibold">Descrizione WOD</h3>
+                <textarea
+                  className="bg-gray-700 text-white rounded-lg p-3 resize-y h-40 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Inserisci qui i dettagli del WOD..."
+                  value={localWorkout.wodText || ''}
+                  onChange={(e) => handleUpdateWorkoutDetails('wodText', e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          {localWorkout.type === 'workout' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-xl font-semibold">Esercizi</h3>
+                <button onClick={handleAddExercise} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors duration-200">
+                  + Aggiungi Esercizio
+                </button>
+              </div>
+              {localWorkout.exercises.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-700">
+                    <thead className="bg-gray-700">
+                      <tr>
+                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Esercizio</th>
+                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Ripetizioni</th>
+                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Carico (kg)</th>
+                        <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Recupero (s)</th>
+                        <th scope="col" className="relative px-3 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-gray-800 divide-y divide-gray-700">
+                      {localWorkout.exercises.map(exercise => (
+                        <tr key={exercise.id}>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <input
+                              type="text"
+                              value={exercise.name || ''}
+                              onChange={(e) => handleUpdateExercise(exercise.id, 'name', e.target.value)}
+                              className="bg-transparent text-white w-full outline-none focus:bg-gray-700 rounded-md px-1 py-1"
+                            />
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <input
+                              type="text"
+                              value={exercise.reps || ''}
+                              onChange={(e) => handleUpdateExercise(exercise.id, 'reps', e.target.value)}
+                              className="bg-transparent text-white w-20 outline-none focus:bg-gray-700 rounded-md px-1 py-1"
+                            />
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <input
+                              type="text"
+                              value={exercise.load || ''}
+                              onChange={(e) => handleUpdateExercise(exercise.id, 'load', e.target.value)}
+                              className="bg-transparent text-white w-20 outline-none focus:bg-gray-700 rounded-md px-1 py-1"
+                            />
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap">
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="text"
+                                value={exercise.recovery || ''}
+                                onChange={(e) => handleUpdateExercise(exercise.id, 'recovery', e.target.value)}
+                                className="bg-transparent text-white w-20 outline-none focus:bg-gray-700 rounded-md px-1 py-1"
+                              />
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 whitespace-nowrap text-right text-sm font-medium">
+                            <button onClick={() => handleDeleteExercise(exercise.id)} className="text-red-400 hover:text-red-500 transition-colors duration-200">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                              </svg>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-center text-gray-400 py-8">Nessun esercizio aggiunto. Aggiungine uno!</p>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const MaxesView = ({ maxes, percentages, onUpdateMax, onAddMax, onDeleteMax, onUpdatePercentages }) => {
+      const [newMaxName, setNewMaxName] = useState('');
+      const [newMaxWeight, setNewMaxWeight] = useState('');
+
+      const handleAddMaxClick = () => {
+        if (newMaxName && newMaxWeight) {
+          onAddMax(newMaxName, parseFloat(newMaxWeight));
+          setNewMaxName('');
+          setNewMaxWeight('');
+        }
+      };
+
+      const handlePercentageChange = (index, value) => {
+        const newPercentages = [...percentages];
+        newPercentages[index] = parseFloat(value) || 0;
+        onUpdatePercentages(newPercentages);
+      };
+
+      return (
+        <div className="space-y-4">
+          <h2 className="text-2xl font-bold">I miei Massimali</h2>
+          <div className="bg-gray-800 rounded-lg p-4 shadow-lg space-y-3">
+            <h3 className="text-lg font-semibold">Modifica Percentuali</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {percentages.map((p, index) => (
+                <div key={index} className="flex items-center space-x-2 bg-gray-700 rounded-lg p-2">
+                  <span className="text-sm text-gray-400">P{index + 1} (%):</span>
+                  <input
+                    type="number"
+                    value={p}
+                    onChange={(e) => handlePercentageChange(index, e.target.value)}
+                    className="bg-gray-600 text-white px-2 py-1 rounded-lg w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="bg-gray-800 rounded-lg p-4 shadow-lg space-y-4">
+            <h3 className="text-lg font-semibold">Aggiungi nuovo massimale</h3>
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                placeholder="Nome Esercizio"
+                value={newMaxName}
+                onChange={(e) => setNewMaxName(e.target.value)}
+                className="bg-gray-700 text-white px-3 py-2 rounded-lg w-2/3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <input
+                type="number"
+                placeholder="Carico (kg)"
+                value={newMaxWeight}
+                onChange={(e) => setNewMaxWeight(e.target.value)}
+                className="bg-gray-700 text-white px-3 py-2 rounded-lg w-1/3 focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+              />
+            </div>
+            <button onClick={handleAddMaxClick} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg w-full transition-colors duration-200">
+              Aggiungi
+            </button>
+          </div>
+          <div className="space-y-4">
+            {Object.entries(maxes).length > 0 ? (
+              Object.entries(maxes).map(([name, weight]) => (
+                <div key={name} className="flex flex-col bg-gray-800 p-4 rounded-lg shadow-lg space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium">{name}</span>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="number"
+                        value={weight || 0}
+                        onChange={(e) => onUpdateMax(name, parseFloat(e.target.value))}
+                        className="bg-gray-700 text-white px-3 py-1 rounded-lg w-24 text-center focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+                      />
+                      <span className="text-lg font-bold text-indigo-400">kg</span>
+                      <button onClick={() => onDeleteMax(name)} className="text-red-400">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex justify-between flex-wrap gap-2 text-sm text-gray-400 mt-2">
+                    {percentages.map((p, index) => (
+                      <div key={index} className="flex-grow bg-gray-700 rounded-md py-2 px-3 text-center">
+                        {p}%: <span className="font-semibold text-white">{(weight * p / 100).toFixed(1)}</span> kg
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-center text-gray-400 py-8">Nessun massimale aggiunto.</p>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const UtilityView = () => {
+      const [pounds, setPounds] = useState('');
+      const [kilograms, setKilograms] = useState('');
+      const [calcInput, setCalcInput] = useState('');
+      const [baseWeight, setBaseWeight] = useState('');
+      const [percentage, setPercentage] = useState('');
+      const [calculatedResult, setCalculatedResult] = useState('');
+
+      const handlePoundChange = (e) => {
+        const value = e.target.value;
+        setPounds(value);
+        if (value) {
+          setKilograms((value * 0.453592).toFixed(2));
+        } else {
+          setKilograms('');
+        }
+      };
+
+      const handleKilogramChange = (e) => {
+        const value = e.target.value;
+        setKilograms(value);
+        if (value) {
+          setPounds((value / 0.453592).toFixed(2));
+        } else {
+          setPounds('');
+        }
+      };
+
+      const handleCalculatorClick = (value) => {
+        if (value === '=') {
+          try {
+            setCalcInput(Function(`'use strict'; return (${calcInput})`)().toString());
+          } catch (e) {
+            setCalcInput('Errore');
+          }
+        } else if (value === 'C') {
+          setCalcInput('');
+        } else {
+          setCalcInput(calcInput + value);
+        }
+      };
+
+      const handlePercentageCalculation = () => {
+        const bw = parseFloat(baseWeight);
+        const p = parseFloat(percentage);
+        if (!isNaN(bw) && !isNaN(p)) {
+          const result = (bw * (p / 100)).toFixed(2);
+          setCalculatedResult(`${result} kg`);
+        } else {
+          setCalculatedResult('Inserisci valori validi');
+        }
+      };
+
+      const calculatorButtons = ['7', '8', '9', '/', '4', '5', '6', '*', '1', '2', '3', '-', '0', '.', '=', '+', 'C'];
+
+      return (
+        <div className="space-y-6">
+          <h2 className="text-2xl font-bold">Utility</h2>
+          <div className="bg-gray-800 rounded-lg p-4 shadow-lg space-y-4">
+            <h3 className="text-lg font-semibold">Convertitore Libbre/Kg</h3>
+            <div className="flex space-x-2">
+              <input
+                type="number"
+                placeholder="Libbre (lbs)"
+                value={pounds}
+                onChange={handlePoundChange}
+                className="bg-gray-700 text-white px-3 py-2 rounded-lg w-1/2 appearance-none"
+              />
+              <input
+                type="number"
+                placeholder="Chilogrammi (kg)"
+                value={kilograms}
+                onChange={handleKilogramChange}
+                className="bg-gray-700 text-white px-3 py-2 rounded-lg w-1/2 appearance-none"
+              />
+            </div>
+          </div>
+          <div className="bg-gray-800 rounded-lg p-4 shadow-lg space-y-4">
+            <h3 className="text-lg font-semibold">Calcolo Carico Percentuale</h3>
+            <div className="flex flex-col space-y-2">
+              <label className="text-sm text-gray-400">Carico (kg):</label>
+              <input
+                type="number"
+                value={baseWeight}
+                onChange={(e) => setBaseWeight(e.target.value)}
+                className="bg-gray-700 text-white px-3 py-2 rounded-lg appearance-none"
+                placeholder="Peso in kg"
+              />
+            </div>
+            <div className="flex flex-col space-y-2">
+              <label className="text-sm text-gray-400">Percentuale (%):</label>
+              <input
+                type="number"
+                value={percentage}
+                onChange={(e) => setPercentage(e.target.value)}
+                className="bg-gray-700 text-white px-3 py-2 rounded-lg appearance-none"
+                placeholder="Percentuale"
+              />
+            </div>
+            <button onClick={handlePercentageCalculation} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg w-full transition-colors duration-200">
+              Calcola
+            </button>
+            {calculatedResult && (
+              <div className="text-center font-bold text-2xl text-indigo-400 mt-4">
+                {calculatedResult}
+              </div>
+            )}
+          </div>
+          <div className="bg-gray-800 rounded-lg p-4 shadow-lg space-y-4">
+            <h3 className="text-lg font-semibold">Calcolatrice</h3>
+            <div className="bg-gray-700 text-white p-4 rounded-lg text-right text-2xl font-mono overflow-x-auto">
+              {calcInput || '0'}
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {calculatorButtons.map((btn) => (
+                <button
+                  key={btn}
+                  onClick={() => handleCalculatorClick(btn)}
+                  className="bg-gray-600 hover:bg-gray-500 text-white p-4 rounded-lg font-bold text-xl transition-colors duration-200"
+                >
+                  {btn === '*' ? 'x' : btn === '/' ? '÷' : btn}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const NavItem = ({ icon, label, onClick, active }) => (
+      <button onClick={onClick} className={`flex flex-col items-center p-2 rounded-lg transition-colors duration-200 ${active ? 'text-indigo-400' : 'text-gray-400 hover:text-white'}`}>
+        <span className="text-2xl">{icon}</span>
+        <span className="text-xs font-medium">{label}</span>
+      </button>
+    );
+
+    // Renderizza l'applicazione React
+    ReactDOM.render(
+      <App />,
+      document.getElementById('root')
+    );
+  </script>
+</body>
+</html>
+
